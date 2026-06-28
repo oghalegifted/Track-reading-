@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review Tracker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f6f5f3;
+    color: #2b2a28;
+    padding: 16px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 1.3rem;
+    margin-bottom: 4px;
+    color: #3d3a34;
+  }
+  .subtitle {
+    font-size: 0.85rem;
+    color: #8a8579;
+    margin-bottom: 18px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border-left: 4px solid #cfa15a;
+  }
+  .card.due-today { border-left-color: #c1572d; background: #fff8f4; }
+  .card.overdue { border-left-color: #b03a2e; background: #fdf0ee; }
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .topic-name {
+    font-weight: 600;
+    font-size: 1.02rem;
+  }
+  .meta {
+    font-size: 0.8rem;
+    color: #8a8579;
+    margin-top: 3px;
+  }
+  .due-badge {
+    font-size: 0.78rem;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: #ece8e0;
+    color: #6b665c;
+    white-space: nowrap;
+  }
+  .due-today .due-badge { background: #c1572d; color: #fff; }
+  .overdue .due-badge { background: #b03a2e; color: #fff; }
+  .actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+  }
+  button {
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .btn-done {
+    background: #3d3a34;
+    color: #fff;
+  }
+  .btn-done:active { opacity: 0.8; }
+  .btn-delete {
+    background: transparent;
+    color: #b03a2e;
+    border: 1px solid #e0c9c5;
+  }
+  .add-form {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .add-form h2 {
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+    color: #3d3a34;
+  }
+  .form-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  input, select {
+    flex: 1;
+    min-width: 100px;
+    padding: 8px 10px;
+    border: 1px solid #ddd8cf;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  .btn-add {
+    background: #5a7d5a;
+    color: #fff;
+    width: 100%;
+    padding: 10px;
+  }
+  .empty-state {
+    text-align: center;
+    color: #8a8579;
+    padding: 30px 10px;
+    font-size: 0.9rem;
+  }
+  .loading {
+    text-align: center;
+    color: #8a8579;
+    padding: 20px;
+  }
+  .stage-pill {
+    display: inline-block;
+    font-size: 0.75rem;
+    background: #ece8e0;
+    color: #6b665c;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-top: 4px;
+  }
+  .error-msg {
+    background: #fdf0ee;
+    color: #b03a2e;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+  }
+</style>
+</head>
+<body>
+
+<h1>📚 Review Tracker</h1>
+<div class="subtitle">Spaced repetition: 1 → 2 → 3 → 4 → 2 → 3 → 4 → ...</div>
+
+<div id="error-container"></div>
+<div id="topics-container"><div class="loading">Loading...</div></div>
+
+<div class="add-form">
+  <h2>Add a topic</h2>
+  <div class="form-row">
+    <input type="text" id="new-topic-name" placeholder="Topic name (e.g. Gluconeogenesis)">
+  </div>
+  <div class="form-row">
+    <select id="new-topic-stage">
+      <option value="1">Just read (Review 1, today)</option>
+      <option value="2">Did Review 2</option>
+      <option value="3">Did Review 3</option>
+      <option value="4">Did Review 4</option>
+    </select>
+    <input type="date" id="new-topic-date">
+  </div>
+  <button class="btn-add" onclick="addTopic()">Add Topic</button>
+</div>
+
+<script>
+const STORAGE_KEY = 'topics-list';
+
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+document.getElementById('new-topic-date').value = todayISO();
+
+function gapForStage(stage) {
+  // gap in days FROM the date the given stage was completed TO the next stage
+  if (stage === 1) return 1; // 1 -> 2
+  if (stage === 2) return 2; // 2 -> 3
+  if (stage === 3) return 4; // 3 -> 4
+  if (stage === 4) return 1; // 4 -> 2 (cycle restarts, skipping 1)
+  return 1;
+}
+
+function nextStage(stage) {
+  if (stage === 4) return 2;
+  return stage + 1;
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function daysBetween(a, b) {
+  const d1 = new Date(a + 'T00:00:00');
+  const d2 = new Date(b + 'T00:00:00');
+  return Math.round((d2 - d1) / 86400000);
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-container');
+  el.innerHTML = '<div class="error-msg">' + msg + '</div>';
+  setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+
+const DEFAULT_TOPICS = [
+  { name: 'Kidney Physiology', lastStage: 3, lastDate: '2026-06-27' },
+  { name: 'Intercostal Muscles and Diaphragm', lastStage: 3, lastDate: '2026-06-25' },
+  { name: 'Celiac Trunk', lastStage: 3, lastDate: '2026-06-27' },
+  { name: 'Portal Venous System', lastStage: 2, lastDate: '2026-06-24' },
+  { name: 'Gluconeogenesis', lastStage: 1, lastDate: '2026-06-27' },
+  { name: 'The Esophagus', lastStage: 2, lastDate: '2026-06-27' },
+  { name: 'Glycolysis', lastStage: 2, lastDate: '2026-06-27' }
+];
+
+async function loadTopics() {
+  try {
+    const result = await window.storage.get(STORAGE_KEY, false);
+    if (result) return JSON.parse(result.value);
+    // Key not found but no error thrown - seed defaults
+    await saveTopics(DEFAULT_TOPICS);
+    return DEFAULT_TOPICS;
+  } catch (e) {
+    // Key doesn't exist yet - first time opening, seed with default topics
+    await saveTopics(DEFAULT_TOPICS);
+    return DEFAULT_TOPICS;
+  }
+}
+
+async function saveTopics(topics) {
+  try {
+    await window.storage.set(STORAGE_KEY, JSON.stringify(topics), false);
+  } catch (e) {
+    showError('Could not save — please try again.');
+  }
+}
+
+function computeNextDue(topic) {
+  const gap = gapForStage(topic.lastStage);
+  return addDays(topic.lastDate, gap);
+}
+
+async function render() {
+  const topics = await loadTopics();
+  const container = document.getElementById('topics-container');
+
+  if (topics.length === 0) {
+    container.innerHTML = '<div class="empty-state">No topics yet. Add one below to get started.</div>';
+    return;
+  }
+
+  const today = todayISO();
+
+  // sort by due date
+  const enriched = topics.map((t, idx) => ({
+    ...t,
+    idx,
+    nextDue: computeNextDue(t)
+  })).sort((a, b) => a.nextDue.localeCompare(b.nextDue));
+
+  container.innerHTML = enriched.map(t => {
+    const diff = daysBetween(today, t.nextDue);
+    let cardClass = 'card';
+    let badge = formatDate(t.nextDue);
+    if (diff < 0) {
+      cardClass += ' overdue';
+      badge = Math.abs(diff) + ' day' + (Math.abs(diff) > 1 ? 's' : '') + ' overdue';
+    } else if (diff === 0) {
+      cardClass += ' due-today';
+      badge = 'Due today';
+    }
+    return `
+      <div class="${cardClass}">
+        <div class="card-top">
+          <div>
+            <div class="topic-name">${escapeHtml(t.name)}</div>
+            <div class="meta">Last: Review ${t.lastStage} on ${formatDate(t.lastDate)}</div>
+            <div class="stage-pill">Next up: Review ${nextStage(t.lastStage)}</div>
+          </div>
+          <div class="due-badge">${badge}</div>
+        </div>
+        <div class="actions">
+          <button class="btn-done" onclick="markDone(${t.idx})">Mark Review ${nextStage(t.lastStage)} done today</button>
+          <button class="btn-delete" onclick="deleteTopic(${t.idx})">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function markDone(idx) {
+  const topics = await loadTopics();
+  const t = topics[idx];
+  if (!t) return;
+  t.lastStage = nextStage(t.lastStage);
+  t.lastDate = todayISO();
+  await saveTopics(topics);
+  render();
+}
+
+async function deleteTopic(idx) {
+  const topics = await loadTopics();
+  topics.splice(idx, 1);
+  await saveTopics(topics);
+  render();
+}
+
+async function addTopic() {
+  const nameInput = document.getElementById('new-topic-name');
+  const stageInput = document.getElementById('new-topic-stage');
+  const dateInput = document.getElementById('new-topic-date');
+
+  const name = nameInput.value.trim();
+  if (!name) {
+    showError('Please enter a topic name.');
+    return;
+  }
+  if (!dateInput.value) {
+    showError('Please pick a date.');
+    return;
+  }
+
+  const topics = await loadTopics();
+  topics.push({
+    name: name,
+    lastStage: parseInt(stageInput.value, 10),
+    lastDate: dateInput.value
+  });
+  await saveTopics(topics);
+
+  nameInput.value = '';
+  stageInput.value = '1';
+  dateInput.value = todayISO();
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
